@@ -32,7 +32,7 @@ $ apt install -y jq
 $ git clone https://github.com/codezm/fcs-tools.git
 $ cd fcs-tools
 $ chmod +x install.sh
-$ ./install.sh
+$ source ./install.sh
 ```
 
 ### 使用
