@@ -126,7 +126,7 @@ getServerInfo() {
 
     if [[ $option == "host" ]]; then
         if [[ ${server[1]} =~ "ssh" ]]; then
-            echo ${server[0]}$SEPARATOR`echo ${server[@]} | perl -pe "s/.*?(\w+@[^\s' ]+).*/\1/"`
+            echo ${server[0]}$SEPARATOR`echo ${server[@]} | perl -pe "s/.*?(\w+@[^\s\"' ]+).*/\1/"`$SEPARATOR"ssh"
         else
             echo ${server[0]}$SEPARATOR${server[1]}
         fi
