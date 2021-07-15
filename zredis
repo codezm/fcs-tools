@@ -175,8 +175,10 @@ getServerCommand() {
             echo "'redis-cli -h ${server[1]} -p ${server[2]} -n ${server[3]} --pass ${server[4]}'"
         elif [[ ${#server[@]} -gt 3 ]]; then
             echo "'redis-cli -h ${server[1]} -p ${server[2]} -n ${server[3]}'"
-        else
+        elif [[ ${#server[@]} -gt 2 ]]; then
             echo "'redis-cli -h ${server[1]} -p ${server[2]}'"
+        else
+            echo "'redis-cli -h ${server[1]}'"
         fi
     fi
 }
