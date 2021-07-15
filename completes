@@ -10,7 +10,7 @@ _zssh_completions() {
 
     case $COMP_CWORD in
         1)
-            COMPREPLY=(connect add delete search list)
+            COMPREPLY=($(compgen -W "connect add delete search list" -- $cur))
             ;;
         2)
             if [[ ${COMP_WORDS[1]} != "add" && ${COMP_WORDS[1]} != "list" ]]; then
@@ -38,7 +38,7 @@ _zscp_completions() {
             fi
             ;;
         2)
-            COMPREPLY=(download upload)
+            COMPREPLY=($(compgen -W "download upload" -- $cur))
             ;;
     esac
 }
@@ -50,7 +50,7 @@ _zredis_completions() {
 
     case $COMP_CWORD in
         1)
-            COMPREPLY=(connect add delete search list)
+            COMPREPLY=($(compgen -W "connect add delete search list" -- $cur))
             ;;
         2)
             if [[ ${COMP_WORDS[1]} != "add" && ${COMP_WORDS[1]} != "list" ]]; then
