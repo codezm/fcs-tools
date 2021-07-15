@@ -1,0 +1,5 @@
+[
+	"docker-web 'ssh -i ~/.ssh/id_rsa root@127.0.0.1 -p 2222'",
+	"vm-jenkins \"ssh -p 2222 root@127.0.0.1\" 1234",
+	"vm-web96.2 172.16.96.2 codezm 1234 root1234"
+]

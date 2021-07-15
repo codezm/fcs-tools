@@ -1,0 +1,67 @@
+#!/usr/bin/env bash
+
+#export FCS_BASE_PATH="/Users/codezm/.config/dotfile/alfred/Alfred.alfredpreferences/workflows/user.workflow.3E5791A5-1550-4FA1-954C-CBC05252BD2B"
+#export FCS_SERVER_CONFIG_FILE_PATH=""
+#export FCS_REDIS_SERVER_CONFIG_FILE_PATH=""
+#export FCS_EXPECT_SCRIPT_PATH=""
+
+_zssh_completions() {
+    local cur="${COMP_WORDS[COMP_CWORD]}"
+
+    case $COMP_CWORD in
+        1)
+            COMPREPLY=(connect add delete search list)
+            ;;
+        2)
+            if [[ ${COMP_WORDS[1]} != "add" && ${COMP_WORDS[1]} != "list" ]]; then
+                if [[ -n "$cur" ]]; then
+                    COMPREPLY=($(compgen -W "$(zssh -v search $cur)" -- $cur))
+                else
+                    COMPREPLY=($(compgen -W "$(zssh list -n)" -- $cur))
+                fi
+            fi
+            ;;
+    esac
+}
+
+complete -F _zssh_completions zssh
+
+_zscp_completions() {
+    local cur="${COMP_WORDS[COMP_CWORD]}"
+
+    case $COMP_CWORD in
+        1)
+            if [[ -n "$cur" ]]; then
+                COMPREPLY=($(compgen -W "$(zssh -v search $cur)" -- $cur))
+            else
+                COMPREPLY=($(compgen -W "$(zssh list -n)" -- $cur))
+            fi
+            ;;
+        2)
+            COMPREPLY=(download upload)
+            ;;
+    esac
+}
+
+complete -F _zscp_completions zscp
+
+_zredis_completions() {
+    local cur="${COMP_WORDS[COMP_CWORD]}"
+
+    case $COMP_CWORD in
+        1)
+            COMPREPLY=(connect add delete search list)
+            ;;
+        2)
+            if [[ ${COMP_WORDS[1]} != "add" && ${COMP_WORDS[1]} != "list" ]]; then
+                if [[ -n "$cur" ]]; then
+                    COMPREPLY=($(compgen -W "$(zredis -v search $cur)" -- $cur))
+                else
+                    COMPREPLY=($(compgen -W "$(zredis list -n)" -- $cur))
+                fi
+            fi
+            ;;
+    esac
+}
+
+complete -F _zredis_completions zredis

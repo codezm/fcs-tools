@@ -1,0 +1,38 @@
+#!/usr/bin/expect
+set _ssh [lindex $argv 0]
+set passwd  [lindex $argv 1]
+set timeout 30
+
+eval spawn $_ssh
+
+if {$passwd != ""} {
+    expect {
+        "yes/no" {
+            send "yes\r";
+            exp_continue
+        }
+        "assword:" {
+            send "$passwd\r"
+        }
+        "*#" {
+            send "echo 'Hello World!'\r"
+        }
+    }
+}
+
+if {$argc > 2} {
+    set passwd2  [lindex $argv 2]
+    send "$passwd2 \r"
+    expect {
+        "*$*" {
+            send "su -\r"
+            expect {
+                "*：" {
+                    send "$passwd2\r"
+                }
+            }
+        }
+    }
+}
+
+interact

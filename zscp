@@ -1,0 +1,421 @@
+#!/usr/bin/env bash
+
+BASE_PATH="${FCS_BASE_PATH}"
+SERVER_CONFIG_FILE_PATH="${FCS_SERVER_CONFIG_FILE_PATH}"
+EXPECT_SCRIPT_PATH="${FCS_EXPECT_SCRIPT_PATH}"
+SERVER_LISTS=()
+SERVER_NAME=""
+SERVER_NAME_COMPLETE=0
+SEPARATOR="--"
+ACTION=""
+FOUND=0
+VERBOSE=0
+SILENT=0
+DRY_RUN=0
+VERSION=1.0.0
+
+LOCAL_PATH=""
+LOCAL_DEFAULT_DOWNLOAD_PATH="$HOME/Downloads/"
+REMOTE_PATH=""
+REMOTE_DEFAULT_UPLOAD_PATH="/tmp/"
+
+usage() {
+cat << EOF
+USAGE
+    zscp <server:name or server:address> <action> <remote-path: The remote download file path or upload local file to save the server directory> [<local-path: The local save server download file directory or upload local file path>]
+
+
+DESCRIPTION
+    zscp command, for fast download or upload file with server and local.
+
+ACTIONS
+    . download
+        Download server file to local directory.
+
+    . upload
+        Upload local file to server directory.
+
+    . help
+        Shows this help screen.
+
+
+OPTIONS
+    -h, --help              Shows this help screen.
+    -p, --path              Server config file path.
+    -f, --file              Server config file directory path.
+    -o, --output-file       Print server config file path.
+    -s, --server            Using the specified <server:name> or <server:address>.
+    -r, --remote            The remote server file or directory path.
+    -l, --local             The local file or directory path, Default: downloads directory is $HOME/Downloads.
+    -c, --complete          Use <server:name> complete match mode, default use <server:name> and <server:address> to match.
+    -D, --dry-run           Dry run: Does not connect server.
+    --version               Prints version.
+
+
+EXAMPLES
+    . zscp <server:name> download /etc/passwd ~/Downloads/
+    . zscp <server:name> upload /tmp/ ~/Downloads/test.txt
+
+
+VERSION
+    $VERSION
+EOF
+}
+
+function error() {
+    if [ $2 ]; then
+        eval "$1=\"\033[31;5m${2}\033[0m\""
+    else
+        echo -e "\033[31;5m${1}\033[0m"
+    fi
+
+    return 2
+}
+
+function warning() {
+    if [ $2 ]; then
+        eval "$1=\"\033[33;1m${2}\033[0m\""
+    else
+        echo -e "\033[33;1m${1}\033[0m"
+    fi
+
+    return 1
+}
+
+function success() {
+    if [ $2 ]; then
+        eval "$1=\"\033[32;5m${2}\033[0m\""
+    else
+        echo -e "\033[32;5m${1}\033[0m"
+    fi
+
+    return 0
+}
+
+function _readlink() {
+    TARGET_FILE=$1
+
+    cd `dirname $TARGET_FILE`
+    TARGET_FILE=`basename $TARGET_FILE`
+
+    # Iterate down a (possible) chain of symlinks
+    while [ -L "$TARGET_FILE" ]
+    do
+        TARGET_FILE=`readlink $TARGET_FILE`
+        cd `dirname $TARGET_FILE`
+        TARGET_FILE=`basename $TARGET_FILE`
+    done
+
+    # Compute the canonicalized name by finding the physical path 
+    # for the directory we're in and appending the target file.
+    PHYS_DIR=`pwd -P`
+    RESULT=$PHYS_DIR/$TARGET_FILE
+    echo $RESULT
+}
+
+function parseServerConfigFile() {
+    OLD_IFS="$IFS"
+    IFS=$'\n'
+    SERVER_LISTS=(`cat $1 | jq -r '.[]'`)
+    IFS="$OLD_IFS"
+}
+
+getServerInfo() {
+    server=($1)
+    option=${2:-0}
+
+    if [[ $option == "host" ]]; then
+        if [[ ${server[1]} =~ "ssh" ]]; then
+            echo ${server[0]}$SEPARATOR`echo ${server[@]} | perl -pe "s/.*?(\w+@[^\s' ]+).*/\1/"`
+        else
+            echo ${server[0]}$SEPARATOR${server[1]}
+        fi
+    else
+        echo "${server[$option]}"
+    fi
+}
+
+getServerCommand() {
+    server=($1)
+    server=(${server[@]:1})
+    connect=""
+    param=""
+    password=""
+    if [[ ${server[@]} =~ "ssh" ]];then
+        connect=`echo "${server[@]}" | perl -pe "s/.*?(\w+@[^\s]+).*/\1/"`
+        param=${server[@]}
+        param=${param/\'ssh/}
+        param=${param/-p/-P}
+        # 去掉字符串最后一个字符: '
+        param=${param%?}
+        param=${param/$connect/}
+    else
+        password=${server[2]}
+        connect="${server[1]}@${server[0]}"
+    fi
+    case $ACTION in
+        upload)
+            echo "'scp $param $LOCAL_PATH $connect:$REMOTE_PATH' $password"
+            ;;
+        download)
+            echo "'scp $param $connect:$REMOTE_PATH $LOCAL_PATH' $password"
+            ;;
+        *)
+            error "Action not found" || return $?
+            ;;
+    esac
+}
+
+# 连接服务器
+action_connect() {
+    if [ -z "$SERVER_NAME" ]; then
+        error "Please input <server:name>, like: $0 <server:name> <action> <remote-path> <local-path>" || return $?
+    fi
+
+    case $ACTION in
+        upload)
+            if [ -z "$REMOTE_PATH" ]; then
+                REMOTE_PATH=$REMOTE_DEFAULT_UPLOAD_PATH
+            fi
+            ;;
+        download)
+            if [ -z "$LOCAL_PATH" ]; then
+                LOCAL_PATH=$LOCAL_DEFAULT_DOWNLOAD_PATH
+            fi
+            ;;
+    esac
+
+    if [ -z "$REMOTE_PATH" ]; then
+        error "Please input remote download or upload file path, like: $0 $SERVER_NAME download ${REMOTE_PATH:-<remote-path>} ${LOCAL_PATH:-<local-path>}" || return $?
+    fi
+    if [ -z "$LOCAL_PATH" ]; then
+        error "Please input local download or upload file path, like: $0 $SERVER_NAME upload ${REMOTE_PATH:-<remote-path>} ${LOCAL_PATH:-<local-path>}" || return $?
+    fi
+
+    for item in "${SERVER_LISTS[@]}"; do
+        if [[ $SERVER_NAME_COMPLETE == 0 ]]; then
+            SERVER_NAME_HOST=$(getServerInfo "$item" "host")
+            # The $SERVER_NAME_HOST strings contains $SERVER_NAME sub-strings.
+            if [[ "$SERVER_NAME_HOST" =~ $SERVER_NAME ]]; then
+                FOUND=1
+                SERVER_COMMAND=$(getServerCommand "$item") || return $?
+                break
+            fi
+        else
+            SERVER_NAME_HOST=$(getServerInfo "$item")
+            # The $SERVER_NAME_HOST strings contains $SERVER_NAME sub-strings.
+            if [[ "$SERVER_NAME_HOST" == "$SERVER_NAME" ]]; then
+                FOUND=1
+                SERVER_COMMAND=$(getServerCommand "$item") || return $?
+                break
+            fi
+        fi
+
+    done
+
+    if [[ $FOUND == 0 ]]; then
+        error "Not found server config: $SERVER_NAME" || return $?
+    fi
+
+    if [[ $DRY_RUN == 1 ]]; then
+        echo /usr/bin/expect ${EXPECT_SCRIPT_PATH} $SERVER_COMMAND
+    else
+        eval /usr/bin/expect ${EXPECT_SCRIPT_PATH} $SERVER_COMMAND
+    fi
+
+    return
+}
+
+handle_action() {
+    case "$ACTION" in
+        download|upload)
+            action_connect
+            ;;
+        help)
+            usage
+            ;;
+        *)
+            usage
+            #error "Action unknown." || return $?
+            ;;
+    esac
+
+    return $?
+}
+
+main() {
+    if [[ -z "$BASE_PATH" ]]; then
+        BASE_PATH=$(dirname $(_readlink "$0"))
+    fi
+    if [[ -z "$SERVER_CONFIG_FILE_PATH" ]]; then
+        SERVER_CONFIG_FILE_PATH="$BASE_PATH/data/ssh.json"
+    fi
+    if [[ -z "$EXPECT_SCRIPT_PATH" ]]; then
+        EXPECT_SCRIPT_PATH="$BASE_PATH/login.expect"
+    fi
+
+    # 解析服务器连接数据配置文件
+    parseServerConfigFile $SERVER_CONFIG_FILE_PATH
+
+    handle_action || return $?
+}
+while test $# != 0
+do
+    case "$1" in
+        download|upload)
+            ACTION="$1"
+            ;;
+        -h|--h|--he|--hel|--help|help)
+            usage
+            ;;
+        -p|--path*)
+            case "$#,$1" in
+                *,*=*)
+                    BASE_PATH=$(expr "z$1" : 'z-[^=]*=\(.*\)')
+                    ;;
+                1,*)
+                    BASE_PATH=${1/--path/}
+                    ;;
+                *)
+                    if ! echo "$2" | egrep -q '^-'; then
+                        BASE_PATH="$2"
+                        shift
+                    else
+                        BASE_PATH=${2//-/}
+                        shift
+                    fi
+                    ;;
+            esac
+            ;;
+        -f|--file*)
+            case "$#,$1" in
+                *,*=*)
+                    SERVER_CONFIG_FILE_PATH=$(expr "z$1" : 'z-[^=]*=\(.*\)')
+                    ;;
+                1,*)
+                    SERVER_CONFIG_FILE_PATH=${1/--file/}
+                    ;;
+                *)
+                    if ! echo "$2" | egrep -q '^-'; then
+                        SERVER_CONFIG_FILE_PATH="$2"
+                        shift
+                    else
+                        SERVER_CONFIG_FILE_PATH=${2//-/}
+                        shift
+                    fi
+                    ;;
+            esac
+            ;;
+        -o|--output-file)
+            echo "$SERVER_CONFIG_FILE_PATH"
+            exit
+            ;;
+        -s|--server)
+            case "$#,$1" in
+                *,*=*)
+                    # --server=$name
+                    SERVER_NAME=$(expr "z$1" : 'z-[^=]*=\(.*\)')
+                    ;;
+                1,*)
+                    # --server$name
+                    if [[ $1 != "server" ]]; then
+                        SERVER_NAME=${1/--server/}
+                    fi
+                    ;;
+                *)
+                    if ! echo "$2" | egrep -q '^-'; then
+                        # server $name
+                        # -s $name
+                        # --server $name
+                        SERVER_NAME="$2"
+                        shift
+                    else
+                        # --server -$name
+                        # --server --$name
+                        SERVER_NAME=${2//-/}
+                        shift
+                    fi
+                    ;;
+            esac
+            ;;
+        -r|--remote)
+            case "$#,$1" in
+                *,*=*)
+                    # --remote=$name
+                    REMOTE_PATH=$(expr "z$1" : 'z-[^=]*=\(.*\)')
+                    ;;
+                1,*)
+                    # --remote$name
+                    if [[ $1 != "remote" ]]; then
+                        REMOTE_PATH=${1/--remote/}
+                    fi
+                    ;;
+                *)
+                    if ! echo "$2" | egrep -q '^-'; then
+                        # remote $name
+                        # -r $name
+                        # --remote $name
+                        REMOTE_PATH="$2"
+                        shift
+                    else
+                        # --remote -$name
+                        # --remote --$name
+                        REMOTE_PATH=${2//-/}
+                        shift
+                    fi
+                    ;;
+            esac
+            ;;
+        -l|--local)
+            case "$#,$1" in
+                *,*=*)
+                    # --local=$name
+                    LOCAL_PATH=$(expr "z$1" : 'z-[^=]*=\(.*\)')
+                    ;;
+                1,*)
+                    # --local$name
+                    if [[ $1 != "local" ]]; then
+                        LOCAL_PATH=${1/--local/}
+                    fi
+                    ;;
+                *)
+                    if ! echo "$2" | egrep -q '^-'; then
+                        # local $name
+                        # -l $name
+                        # --local $name
+                        LOCAL_PATH="$2"
+                        shift
+                    else
+                        # --local -$name
+                        # --local --$name
+                        LOCAL_PATH=${2//-/}
+                        shift
+                    fi
+                    ;;
+            esac
+            ;;
+        -c|--complete)
+            SERVER_NAME_COMPLETE=1
+            ;;
+        -D|--dry-run)
+            DRY_RUN=1
+            ;;
+        --version|version)
+            echo "$0 version: $VERSION"
+            return 0
+            ;;
+        *)
+            if [[ ${1:0:1} == "/" && $REMOTE_PATH == "" ]]; then
+                REMOTE_PATH=$1
+            else
+                if [[ -f $1 || ${1:0:2} == "./" ]] && [[ $SERVER_NAME != "" ]]; then
+                    LOCAL_PATH=$1
+                else
+                    SERVER_NAME=$1
+                fi
+            fi
+            ;;
+    esac
+    shift
+done
+main

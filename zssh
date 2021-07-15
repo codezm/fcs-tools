@@ -1,0 +1,484 @@
+#!/usr/bin/env bash
+
+BASE_PATH="${FCS_BASE_PATH}"
+SERVER_CONFIG_FILE_PATH="${FCS_SERVER_CONFIG_FILE_PATH}"
+EXPECT_SCRIPT_PATH="${FCS_EXPECT_SCRIPT_PATH}"
+SERVER_LISTS=()
+SERVER_NAME=""
+SERVER_NAME_COMPLETE=0
+SEPARATOR="--"
+ADD_ESTABLISHMENT=1
+ACTION=""
+FOUND=0
+VERBOSE=0
+SILENT=0
+DRY_RUN=0
+VERSION=1.0.0
+
+usage() {
+cat << EOF
+USAGE
+    zssh [options] [<action>] [<server:name> or <server:address>]
+
+
+DESCRIPTION
+    zssh command for fast connect server.
+
+ACTIONS
+    . add
+        Add server config.
+
+    . connect
+        Connect server by <server:name> or <server:address>.
+
+    . delete
+        Delete server config.
+
+    . list
+        Print all server config list.
+
+    . search
+        Search server by <server:name> or <server:address>.
+
+    . help
+        Shows this help screen.
+
+    . version
+        Print zssh version.
+
+
+OPTIONS
+    -h, --help              Shows this help screen.
+    -s, --search            Search server name or server ip address.
+    -p, --path              Server config file path.
+    -f, --file              Server config file directory path.
+    -e, --establishment     Establish a connection, Default is true, Apply: add Action.
+    -o, --output-file       Print server config file path.
+    -c, --complete          Use <server:name> complete match mode, default use <server:name> and <server:address> to match.
+    -D, --dry-run           Dry run: Does not connect server.
+    -n, --silent            Silent mode.
+    -v, --verbose           Verbose mode: Print <server:name> <server:address>, Default only print <server:name>.
+    -vv                     Very verbose or debug mode: Print the raw added data.
+    --version               Prints version.
+
+
+EXAMPLES
+    . zssh add <server:name> <server:address> <server:user> <server:password> <server:su-password>, ANOTHER EXAMPLE: zssh add test "'ssh -i ~/.ssh/test_rsa root@192.168.36.12 -p 2222'"
+    . zssh <server:name> or <server:address>, or zssh connect <server:name> or <server:address>
+    . zssh delete server name or address
+    . zssh list
+    . zssh search <server:name> or <server:address>
+
+
+VERSION
+    $VERSION
+EOF
+}
+
+function error() {
+    if [ $2 ]; then
+        eval "$1=\"\033[31;5m${2}\033[0m\""
+    else
+        echo -e "\033[31;5m${1}\033[0m"
+    fi
+
+    return 2
+}
+
+function warning() {
+    if [ $2 ]; then
+        eval "$1=\"\033[33;1m${2}\033[0m\""
+    else
+        echo -e "\033[33;1m${1}\033[0m"
+    fi
+
+    return 1
+}
+
+function success() {
+    if [ $2 ]; then
+        eval "$1=\"\033[32;5m${2}\033[0m\""
+    else
+        echo -e "\033[32;5m${1}\033[0m"
+    fi
+
+    return 0
+}
+
+function _readlink() {
+    TARGET_FILE=$1
+
+    cd `dirname $TARGET_FILE`
+    TARGET_FILE=`basename $TARGET_FILE`
+
+    # Iterate down a (possible) chain of symlinks
+    while [ -L "$TARGET_FILE" ]
+    do
+        TARGET_FILE=`readlink $TARGET_FILE`
+        cd `dirname $TARGET_FILE`
+        TARGET_FILE=`basename $TARGET_FILE`
+    done
+
+    # Compute the canonicalized name by finding the physical path 
+    # for the directory we're in and appending the target file.
+    PHYS_DIR=`pwd -P`
+    RESULT=$PHYS_DIR/$TARGET_FILE
+    echo $RESULT
+}
+
+function parseServerConfigFile() {
+    OLD_IFS="$IFS"
+    IFS=$'\n'
+    SERVER_LISTS=(`cat $1 | jq -r '.[]'`)
+    IFS="$OLD_IFS"
+}
+
+function save() {
+    # link @https://stackoverflow.com/questions/26808855/how-to-format-a-bash-array-as-a-json-array
+    printf '%s\n' "${SERVER_LISTS[@]}" | jq -R . | jq --tab -s . > $SERVER_CONFIG_FILE_PATH
+}
+
+getServerInfo() {
+    server=($1)
+    option=${2:-0}
+
+    if [[ $option == "host" ]]; then
+        if [[ ${server[1]} =~ "ssh" ]]; then
+            echo ${server[0]}$SEPARATOR`echo ${server[@]} | perl -pe "s/.*?(\w+@[^\s\"' ]+).*/\1/"`$SEPARATOR"ssh"
+        else
+            echo ${server[0]}$SEPARATOR${server[1]}
+        fi
+    else
+        echo "${server[$option]}"
+    fi
+}
+
+getServerCommand() {
+    server=($1)
+    server=(${server[@]:1})
+    connect=""
+    param=""
+    password=""
+    if [[ ${server[@]} =~ "ssh" ]]; then
+        echo ${server[@]}
+    else
+        if [[ ${#server[@]} -gt 3 ]]; then
+            echo "'ssh ${server[1]}@${server[0]} -o ServerAliveInterval=30' ${server[2]} ${server[3]}"
+        else
+            echo "'ssh ${server[1]}@${server[0]} -o ServerAliveInterval=30' ${server[2]}"
+        fi
+    fi
+}
+
+# 连接服务器
+action_connect() {
+    if [ -z "$SERVER_NAME" ]; then
+        error "Please input <server:name>, like: $0 <server:name>" || return $?
+    fi
+
+    for item in "${SERVER_LISTS[@]}"; do
+        if [[ $SERVER_NAME_COMPLETE == 0 ]]; then
+            SERVER_NAME_HOST=$(getServerInfo "$item" "host")
+            # The $SERVER_NAME_HOST strings contains $SERVER_NAME sub-strings.
+            if [[ "$SERVER_NAME_HOST" =~ $SERVER_NAME ]]; then
+                FOUND=1
+                SERVER_COMMAND=$(getServerCommand "$item") || return $?
+                break
+            fi
+        else
+            SERVER_NAME_HOST=$(getServerInfo "$item")
+            if [[ "$SERVER_NAME_HOST" == "$SERVER_NAME" ]]; then
+                FOUND=1
+                SERVER_COMMAND=$(getServerCommand "$item") || return $?
+                break
+            fi
+        fi
+    done
+
+    if [[ $FOUND == 0 ]]; then
+        error "Not found server config: $SERVER_NAME" || return $?
+    fi
+
+    if [[ $DRY_RUN == 1 ]]; then
+        echo /usr/bin/expect ${EXPECT_SCRIPT_PATH} $SERVER_COMMAND
+    else
+        eval /usr/bin/expect ${EXPECT_SCRIPT_PATH} $SERVER_COMMAND
+    fi
+
+    return
+}
+
+action_add() {
+    if [[ ${#NEW_SERVER[@]} -lt 2 ]]; then
+        error "Please input server connection configs, like: $0 add <server:name> <server:address> <server:user> <server:password> <server:su-password>" || return $?
+    fi
+
+    SERVER_LISTS[${#SERVER_LISTS[@]}]=${NEW_SERVER[@]}
+    save
+
+    if [[ $ADD_ESTABLISHMENT == 1 ]]; then
+        item=${NEW_SERVER[@]}
+        SERVER_COMMAND=$(getServerCommand "$item") || return $?
+        if [[ $DRY_RUN == 1 ]]; then
+            echo /usr/bin/expect ${EXPECT_SCRIPT_PATH} $SERVER_COMMAND
+        else
+            eval /usr/bin/expect ${EXPECT_SCRIPT_PATH} $SERVER_COMMAND
+        fi
+    fi
+}
+
+action_delete() {
+    if [ -z "$SERVER_NAME" ]; then
+        error "Please input <server:name>，like: $0 delete <server:name>" || return $?
+    fi
+
+    for k in "${!SERVER_LISTS[@]}"; do
+        if [[ $SERVER_NAME_COMPLETE == 0 ]]; then
+            SERVER_NAME_HOST=$(getServerInfo "${SERVER_LISTS[$k]}" "host")
+        else
+            SERVER_NAME_HOST=$(getServerInfo "${SERVER_LISTS[$k]}")
+        fi
+
+        if [[ $SERVER_NAME_COMPLETE == 0 && "$SERVER_NAME_HOST" =~ $SERVER_NAME ]] || [[ $SERVER_NAME_COMPLETE == 1 && "$SERVER_NAME_HOST" == "$SERVER_NAME" ]]; then
+            FOUND=1
+            SERVER_COMMAND=$(getServerCommand "${SERVER_LISTS[$k]}")
+
+            if [[ $DRY_RUN == 1 ]]; then
+                echo "You will be delete the server config is: ${SERVER_LISTS[$k]}"
+                break
+            else
+                read -p "Do you want to delete the server config: ${SERVER_LISTS[$k]} ? (y|n): " confirm
+
+                if [[ $confirm == "Y" || $confirm == "y" ]]; then
+                    unset SERVER_LISTS[$k]
+                    save
+                    break
+                fi
+            fi
+        fi
+    done
+
+    if [[ $FOUND == 0 ]]; then
+        error "Not found server config: $SERVER_NAME" || return $?
+    fi
+
+    return
+}
+
+# 输出服务器配置列表
+action_list() {
+    if [ $SILENT == 0 ]; then
+        echo -e "The total number of servers configurate: ${#SERVER_LISTS[@]}\n--------------------------------------------\n"
+    fi
+
+    for item in "${SERVER_LISTS[@]}"; do
+        if [ $VERBOSE -eq 2 ]; then
+            echo $item
+        elif [ $VERBOSE -eq 1 ]; then
+            echo $(getServerInfo "$item" "host")
+        else
+            echo $(getServerInfo "$item")
+        fi
+    done
+
+    return
+}
+
+# 搜索服务器
+action_search() {
+    if [ -z "$SERVER_NAME" ]; then
+        error "Please input search <server:name>，like: $0 search <server:name>" || return $?
+    fi
+
+    for item in "${SERVER_LISTS[@]}"; do
+        if [[ $SERVER_NAME_COMPLETE == 0 ]]; then
+            SERVER_NAME_HOST=$(getServerInfo "$item" "host")
+        else
+            SERVER_NAME_HOST=$(getServerInfo "$item")
+        fi
+
+        # The $SERVER_NAME_HOST strings contains $SERVER_NAME sub-strings.
+        if [[ $SERVER_NAME_COMPLETE == 0 && "$SERVER_NAME_HOST" =~ $SERVER_NAME ]] || [[ $SERVER_NAME_COMPLETE == 1 && "$SERVER_NAME_HOST" == "$SERVER_NAME" ]]; then
+            FOUND=1
+            if [ $VERBOSE -eq 2 ]; then
+                echo $item
+            elif [ $VERBOSE -eq 1 ]; then
+                echo $SERVER_NAME_HOST
+            else
+                _tmp=(${SERVER_NAME_HOST//${SEPARATOR}/ })
+                echo ${_tmp[0]}
+            fi
+        fi
+    done
+
+    if [ $FOUND -eq 0 ]; then
+        warning "Not found server config: $SERVER_NAME" || return $?
+    fi
+
+    return
+}
+
+handle_action() {
+    case "$ACTION" in
+        add)
+            action_add
+            ;;
+        delete)
+            action_delete
+            ;;
+        list)
+            action_list
+            ;;
+        help)
+            usage
+            ;;
+        search)
+            action_search
+            ;;
+        connect)
+            action_connect
+            ;;
+        *)
+            usage
+            #error "Action unknown." || return $?
+            ;;
+    esac
+
+    return $?
+}
+
+main() {
+    if [[ -z "$BASE_PATH" ]]; then
+        BASE_PATH=$(dirname $(_readlink "$0"))
+    fi
+    if [[ -z "$SERVER_CONFIG_FILE_PATH" ]]; then
+        SERVER_CONFIG_FILE_PATH="$BASE_PATH/data/ssh.json"
+    fi
+    if [[ -z "$EXPECT_SCRIPT_PATH" ]]; then
+        EXPECT_SCRIPT_PATH="$BASE_PATH/login.expect"
+    fi
+
+    # 解析服务器连接数据配置文件
+    parseServerConfigFile $SERVER_CONFIG_FILE_PATH
+
+    handle_action || return $?
+}
+while test $# != 0
+do
+    case "$1" in
+        add)
+            ACTION="$1"
+            NEW_SERVER=($*)
+            NEW_SERVER=(${NEW_SERVER[@]:1})
+            break
+            ;;
+        connect|delete|list)
+            ACTION="$1"
+            ;;
+        -h|--h|--he|--hel|--help|help)
+            usage
+            ;;
+        -s|--search*|search)
+            ACTION="search"
+            case "$#,$1" in
+                *,*=*)
+                    # --search=$name
+                    SERVER_NAME=$(expr "z$1" : 'z-[^=]*=\(.*\)')
+                    ;;
+                1,*)
+                    # --search$name
+                    if [[ $1 != "search" ]]; then
+                        SERVER_NAME=${1/--search/}
+                        SERVER_NAME=${1/-s/}
+                    fi
+                    ;;
+                *)
+                    if ! echo "$2" | egrep -q '^-'; then
+                        # search $name
+                        # -s $name
+                        # --search $name
+                        SERVER_NAME="$2"
+                        shift
+                    else
+                        # --search -$name
+                        # --search --$name
+                        SERVER_NAME=${2//-/}
+                        shift
+                    fi
+                    ;;
+            esac
+            ;;
+        -p|--path*)
+            case "$#,$1" in
+                *,*=*)
+                    BASE_PATH=$(expr "z$1" : 'z-[^=]*=\(.*\)')
+                    ;;
+                1,*)
+                    BASE_PATH=${1/--path/}
+                    ;;
+                *)
+                    if ! echo "$2" | egrep -q '^-'; then
+                        BASE_PATH="$2"
+                        shift
+                    else
+                        BASE_PATH=${2//-/}
+                        shift
+                    fi
+                    ;;
+            esac
+            ;;
+        -f|--file*)
+            case "$#,$1" in
+                *,*=*)
+                    SERVER_CONFIG_FILE_PATH=$(expr "z$1" : 'z-[^=]*=\(.*\)')
+                    ;;
+                1,*)
+                    SERVER_CONFIG_FILE_PATH=${1/--file/}
+                    ;;
+                *)
+                    if ! echo "$2" | egrep -q '^-'; then
+                        SERVER_CONFIG_FILE_PATH="$2"
+                        shift
+                    else
+                        SERVER_CONFIG_FILE_PATH=${2//-/}
+                        shift
+                    fi
+                    ;;
+            esac
+            ;;
+        -e|--establishment)
+            ADD_ESTABLISHMENT=$1
+            ;;
+        -o|--output-file)
+            echo "$SERVER_CONFIG_FILE_PATH"
+            exit
+            ;;
+        -c|--complete)
+            SERVER_NAME_COMPLETE=1
+            ;;
+        -D|--dry-run)
+            DRY_RUN=1
+            ;;
+        -n|--silent)
+            SILENT=1
+            ;;
+        -v|--verbose)
+            VERBOSE=1
+            ;;
+        -vv)
+            VERBOSE=2
+            ;;
+        --version|version)
+            echo "$0 version: $VERSION"
+            return 0
+            ;;
+        *)
+            if [[ -z "$ACTION" ]]; then
+                ACTION="connect"
+            fi
+            SERVER_NAME=$1
+            ;;
+    esac
+    shift
+done
+main
