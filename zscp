@@ -267,6 +267,7 @@ do
             ;;
         -h|--h|--he|--hel|--help|help)
             usage
+            exit
             ;;
         -p|--path*)
             case "$#,$1" in
@@ -402,7 +403,7 @@ do
             ;;
         --version|version)
             echo "$0 version: $VERSION"
-            return 0
+            exit
             ;;
         *)
             if [[ ${1:0:1} == "/" && $REMOTE_PATH == "" ]]; then

@@ -421,7 +421,8 @@ do
             esac
             ;;
         -h|--h|--he|--hel|--help|help)
-            usage && return 0
+            usage
+            exit
             ;;
         -p|--path*)
             case "$#,$1" in

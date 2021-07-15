@@ -329,9 +329,6 @@ handle_action() {
         list)
             action_list
             ;;
-        help)
-            usage
-            ;;
         search)
             action_search
             ;;
@@ -377,6 +374,7 @@ do
             ;;
         -h|--h|--he|--hel|--help|help)
             usage
+            exit
             ;;
         -s|--search*|search)
             ACTION="search"
@@ -470,7 +468,7 @@ do
             ;;
         --version|version)
             echo "$0 version: $VERSION"
-            return 0
+            exit
             ;;
         *)
             if [[ -z "$ACTION" ]]; then
