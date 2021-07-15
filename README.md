@@ -1,8 +1,8 @@
-## Fast Connect Server
+## Fast Connect Server Tools
 
 #### 前提条件
 
-本项目依赖 [jq](https://github.com/stedolan/jq) 来解析 `JSON` ，j。
+本项目依赖 [jq](https://github.com/stedolan/jq) 来解析 `JSON`。
 
 ```bash
 # macos
