@@ -1,8 +1,16 @@
 ## Fast Connect Server Tools
 
-#### 前提条件
+### 前提条件
 
-本项目依赖 [jq](https://github.com/stedolan/jq) 来解析 `JSON`。
+本项目运行依赖 expect、ssh、scp、redis-cli 命令，依赖 [jq](https://github.com/stedolan/jq) 来解析 `JSON`。
+
+##### `expect` 安装
+
+```bash
+$ yum install -y expect
+```
+
+##### `jq` 安装
 
 ```bash
 # macos
@@ -10,12 +18,15 @@ $ brew install jq
 # linux
 $ curl -L -o /usr/bin/jq -s https://github.com/stedolan/jq/releases/download/jq-1.6/jq-linux64 && chmod +x /usr/local/bin/jq
 # centos
-$ yum install jq
+$ yum install -y epel-release
+$ yum update -y
+$ yum install -y jq
+$ yum remove -y epel-release
 # ubuntu
 $ apt install -y jq
 ```
 
-#### 安装
+### 安装
 
 ```bash
 $ git clone https://github.com/codezm/fcs-tools.git
@@ -24,7 +35,7 @@ $ chmod +x install.sh
 $ ./install.sh
 ```
 
-#### 使用
+### 使用
 
 ##### zssh 命令
 
@@ -95,4 +106,8 @@ $ ./install.sh
   ```bash
   $ zssh delete vm-web96.2
   ```
+
+### LICENSE
+
+[MIT License](https://github.com/codezm/fcs-tools/blob/master/LICENSE)
 
