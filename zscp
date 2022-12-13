@@ -155,10 +155,10 @@ getServerCommand() {
     fi
     case $ACTION in
         upload)
-            echo "'scp $param $LOCAL_PATH $connect:$REMOTE_PATH' $password"
+            echo "'scp $param \"$LOCAL_PATH\" $connect:$REMOTE_PATH' $password"
             ;;
         download)
-            echo "'scp $param $connect:$REMOTE_PATH $LOCAL_PATH' $password"
+            echo "'scp $param $connect:$REMOTE_PATH \"$LOCAL_PATH\"' $password"
             ;;
         *)
             error "Action not found" || return $?
