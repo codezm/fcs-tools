@@ -148,6 +148,7 @@ getServerCommand() {
         param=${param/-p/-P}
         # 去掉字符串最后一个字符: '
         param=${param%?}
+        connect=${connect%?}
         param=${param/$connect/}
     else
         password=${server[2]}
