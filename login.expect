@@ -1,7 +1,8 @@
-#!/usr/bin/expect
+#!/usr/bin/expect -f
 set _ssh [lindex $argv 0]
 set passwd  [lindex $argv 1]
 set timeout 30
+set substring "ssh"
 
 eval spawn $_ssh
 
@@ -15,7 +16,9 @@ if {$passwd != ""} {
             send "$passwd\r"
         }
         "*#" {
-            send "echo 'Hello World!'\r"
+            #exit
+            #exp_continue
+            #send "echo 'Hello World!'\r"
         }
     }
 }
@@ -35,4 +38,7 @@ if {$argc > 2} {
     }
 }
 
-interact
+set results $expect_out(buffer)
+if {[regexp -nocase "ssh" $_ssh]} {
+    interact
+}
